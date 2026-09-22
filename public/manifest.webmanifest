@@ -1,0 +1,10 @@
+{
+  "name": "Gedankenraum",
+  "short_name": "Gedankenraum",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5fbff",
+  "theme_color": "#e8f6ff",
+  "description": "Deine Ideen, gesammelt an einem ruhigen Ort.",
+  "icons": []
+}
