@@ -11,6 +11,8 @@ type Note = {
 
 type View = 'list' | 'calendar';
 type CalendarSelection = { date: string; noteIds: string[] } | null;
+type User = { id: string; name: string };
+type AuthResponse = { user: User; token: string; linkCode?: string };
 
 const initialNotes: Note[] = [
   { id: 'welcome', title: 'Willkommen', text: 'Willkommen in deinem Gedankenraum.', createdAt: Date.now() - 1000 * 60 * 5, completed: false },
@@ -29,7 +31,27 @@ const icons = {
   left: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>,
   right: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>,
   close: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>,
+  user: <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5" /><path d="M4.5 20c.7-3.2 3-5 7.5-5s6.8 1.8 7.5 5" /></svg>,
 };
+
+const getDeviceId = () => {
+  const stored = localStorage.getItem('gedankenraum-device-id');
+  if (stored) return stored;
+  const deviceId = crypto.randomUUID();
+  localStorage.setItem('gedankenraum-device-id', deviceId);
+  return deviceId;
+};
+
+async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = localStorage.getItem('gedankenraum-session');
+  const headers = new Headers(options.headers);
+  headers.set('content-type', 'application/json');
+  if (token) headers.set('authorization', `Bearer ${token}`);
+  const response = await fetch(`/api/${path}`, { ...options, headers });
+  const data = await response.json() as T & { error?: string };
+  if (!response.ok) throw new Error(data.error ?? 'Die Anfrage ist fehlgeschlagen.');
+  return data;
+}
 
 function getInitialNotes(): Note[] {
   const saved = localStorage.getItem('gedankenraum-notes');
@@ -64,8 +86,30 @@ function App() {
   const [touchStart, setTouchStart] = useState<number | null>(null);
   const [calendarSelection, setCalendarSelection] = useState<CalendarSelection>(null);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem('gedankenraum-user');
+    return saved ? JSON.parse(saved) as User : null;
+  });
+  const [authOpen, setAuthOpen] = useState(() => !localStorage.getItem('gedankenraum-session'));
+  const [authMode, setAuthMode] = useState<'register' | 'link'>('register');
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [authName, setAuthName] = useState('');
+  const [linkCode, setLinkCode] = useState('');
+  const [generatedCode, setGeneratedCode] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
 
   useEffect(() => localStorage.setItem('gedankenraum-notes', JSON.stringify(notes)), [notes]);
+  useEffect(() => {
+    const token = localStorage.getItem('gedankenraum-session');
+    if (!token) return;
+    api<{ notes: Note[] }>('notes').then((result) => setNotes(result.notes)).catch(() => {
+      localStorage.removeItem('gedankenraum-session');
+      localStorage.removeItem('gedankenraum-user');
+      setUser(null);
+      setAuthOpen(true);
+    });
+  }, []);
 
   const openNotes = useMemo(() => notes.filter((note) => !note.completed), [notes]);
   const completedNotes = useMemo(() => notes.filter((note) => note.completed), [notes]);
@@ -75,16 +119,22 @@ function App() {
   const firstWeekday = (new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1).getDay() + 6) % 7;
   const today = new Date();
 
-  function saveNote(event: FormEvent) {
+  async function saveNote(event: FormEvent) {
     event.preventDefault();
     const title = draftTitle.trim();
     const text = draftText.trim();
     if (!title || !text) return;
+    const token = localStorage.getItem('gedankenraum-session');
     if (editingId) {
       setNotes((current) => current.map((note) => note.id === editingId ? { ...note, title, text, deadline: draftDeadline || undefined } : note));
+      if (token) await api(`notes/${editingId}`, { method: 'PUT', body: JSON.stringify({ title, text, deadline: draftDeadline, completed: notes.find((note) => note.id === editingId)?.completed ?? false }) });
       setEditingId(null);
     } else {
-      setNotes((current) => [{ id: crypto.randomUUID(), title, text, createdAt: Date.now(), deadline: draftDeadline || undefined, completed: false }, ...current]);
+      const newNote = { id: crypto.randomUUID(), title, text, createdAt: Date.now(), deadline: draftDeadline || undefined, completed: false };
+      setNotes((current) => [newNote, ...current]);
+      if (token) {
+        await api('notes', { method: 'POST', body: JSON.stringify(newNote) });
+      }
     }
     setDraftTitle('');
     setDraftText('');
@@ -100,14 +150,66 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  function toggleNote(id: string) {
+  async function toggleNote(id: string) {
+    const note = notes.find((item) => item.id === id);
+    if (!note) return;
+    const completed = !note.completed;
     setNotes((current) => current.map((note) => note.id === id ? { ...note, completed: !note.completed } : note));
+    if (localStorage.getItem('gedankenraum-session')) await api(`notes/${id}`, { method: 'PUT', body: JSON.stringify({ ...note, completed }) });
   }
 
-  function deleteNote(id: string) {
+  async function deleteNote(id: string) {
     setNotes((current) => current.filter((note) => note.id !== id));
+    if (localStorage.getItem('gedankenraum-session')) await api(`notes/${id}`, { method: 'DELETE' });
     setSelectedNoteId(null);
     setCalendarSelection(null);
+  }
+
+  async function authenticate(event: FormEvent) {
+    event.preventDefault();
+    setAuthBusy(true);
+    setAuthError('');
+    const localNotes = notes;
+    try {
+      const result = authMode === 'register'
+        ? await api<AuthResponse>('auth/register', { method: 'POST', body: JSON.stringify({ name: authName, deviceId: getDeviceId() }) })
+        : await api<AuthResponse>('auth/link', { method: 'POST', body: JSON.stringify({ code: linkCode, deviceId: getDeviceId() }) });
+      localStorage.setItem('gedankenraum-session', result.token);
+      localStorage.setItem('gedankenraum-user', JSON.stringify(result.user));
+      setUser(result.user);
+      setAuthOpen(false);
+      if (authMode === 'register') {
+        await Promise.all(localNotes.map((note) => api('notes', {
+          method: 'POST',
+          body: JSON.stringify(note),
+        })));
+      }
+      const remote = await api<{ notes: Note[] }>('notes');
+      setNotes(remote.notes);
+      setAuthName('');
+      setLinkCode('');
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Anmeldung fehlgeschlagen.');
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function createLinkCode() {
+    try {
+      const result = await api<{ code: string }>('auth/code', { method: 'POST' });
+      setGeneratedCode(result.code);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Code konnte nicht erstellt werden.');
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem('gedankenraum-session');
+    localStorage.removeItem('gedankenraum-user');
+    setUser(null);
+    setProfileOpen(false);
+    setAuthOpen(true);
   }
 
   function changeView(nextView: View) {
@@ -162,7 +264,7 @@ function App() {
     <main className={`app-shell${isNightMode ? ' night-mode' : ''}`} onTouchStart={(event) => setTouchStart(event.touches[0].clientX)} onTouchEnd={(event) => handleTouchEnd(event.changedTouches[0].clientX)}>
       <div className="ambient ambient-one" /><div className="ambient ambient-two" />
       <section className="app-content">
-        <header className="topbar"><div className="brand"><span className="brand-mark">{icons.spark}</span><span>Gedankenraum</span></div><button className="icon-button" onClick={() => setIsNightMode((current) => !current)} aria-label="Darstellung wechseln">{icons.moon}</button></header>
+        <header className="topbar"><div className="brand"><span className="brand-mark">{icons.spark}</span><span>Gedankenraum</span></div><div className="topbar-actions"><button className="icon-button" onClick={() => setIsNightMode((current) => !current)} aria-label="Darstellung wechseln">{icons.moon}</button><button className={`icon-button profile-button${user ? ' signed-in' : ''}`} onClick={() => user ? setProfileOpen(true) : setAuthOpen(true)} aria-label="Profil öffnen">{icons.user}</button></div></header>
 
         {view === 'list' ? <div className="view-panel">
           <section className="hero"><p className="eyebrow">DEIN RUHIGER ORT FÜR IDEEN</p><h1>Was geht dir<br /><em>durch den Kopf?</em></h1></section>
@@ -212,6 +314,8 @@ function App() {
         <nav className="bottom-nav" aria-label="Ansichten"><button className={view === 'list' ? 'active' : ''} onClick={() => changeView('list')}>{icons.list}<span>Gedanken</span></button><button className={view === 'calendar' ? 'active' : ''} onClick={() => changeView('calendar')}>{icons.calendar}<span>Kalender</span></button></nav>
         {selectedNoteId && (() => { const selectedNote = notes.find((note) => note.id === selectedNoteId); return selectedNote ? <div className="modal-backdrop" role="presentation" onClick={() => setSelectedNoteId(null)}><section className="event-modal glass-card" role="dialog" aria-modal="true" aria-labelledby="event-title" onClick={(event) => event.stopPropagation()}><button className="modal-close" onClick={() => setSelectedNoteId(null)} aria-label="Popup schließen">{icons.close}</button><span className="section-kicker">EREIGNIS</span><h2 id="event-title">{selectedNote.title}</h2><p>{selectedNote.text}</p>{selectedNote.deadline && <span className="deadline-label">{formatDate(selectedNote.deadline)}</span>}<div className="modal-actions"><button className={`modal-action complete${selectedNote.completed ? ' is-selected' : ''}`} onClick={() => { toggleNote(selectedNote.id); setSelectedNoteId(null); }} aria-label={selectedNote.completed ? 'Als offen markieren' : 'Als erledigt markieren'}>{icons.check}</button><button className="modal-action" onClick={() => editNote(selectedNote)} aria-label="Ereignis bearbeiten">{icons.edit}</button><button className="modal-action danger" onClick={() => deleteNote(selectedNote.id)} aria-label="Ereignis löschen">{icons.trash}</button></div></section></div> : null; })()}
         {calendarSelection && <div className="modal-backdrop" role="presentation" onClick={() => setCalendarSelection(null)}><section className="event-modal picker-modal glass-card" role="dialog" aria-modal="true" aria-labelledby="picker-title" onClick={(event) => event.stopPropagation()}><button className="modal-close" onClick={() => setCalendarSelection(null)} aria-label="Popup schließen">{icons.close}</button><span className="section-kicker">{formatDate(calendarSelection.date)}</span><h2 id="picker-title">Welches Ereignis?</h2><div className="modal-event-list">{calendarSelection.noteIds.map((id) => { const note = notes.find((item) => item.id === id); return note ? <button className="event-option" key={note.id} onClick={() => { setSelectedNoteId(note.id); setCalendarSelection(null); }}><span className="event-option-title">{note.title}</span><span>{note.text}</span>{icons.right}</button> : null; })}</div></section></div>}
+        {profileOpen && user && <div className="modal-backdrop" role="presentation" onClick={() => setProfileOpen(false)}><section className="event-modal profile-modal glass-card" role="dialog" aria-modal="true" aria-labelledby="profile-title" onClick={(event) => event.stopPropagation()}><button className="modal-close" onClick={() => setProfileOpen(false)} aria-label="Profil schließen">{icons.close}</button><span className="section-kicker">DEIN PROFIL</span><h2 id="profile-title">{user.name}</h2><p>Deine Notizen werden sicher in deiner Cloudflare-Datenbank gespeichert.</p><button className="link-code-button" onClick={createLinkCode}>Code für weiteres Gerät erstellen</button>{generatedCode && <div className="generated-code"><span>10 Minuten gültig</span><strong>{generatedCode}</strong></div>}<button className="logout-button" onClick={logout}>Konto wechseln</button></section></div>}
+        {authOpen && <div className="modal-backdrop" role="presentation"><section className="event-modal auth-modal glass-card" role="dialog" aria-modal="true" aria-labelledby="auth-title" onClick={(event) => event.stopPropagation()}><span className="section-kicker">WILLKOMMEN</span><h2 id="auth-title">{authMode === 'register' ? 'Dein Gedankenraum' : 'Gerät verbinden'}</h2><p>{authMode === 'register' ? 'Lege einen Namen für dein Konto fest. Ein Passwort ist nicht nötig.' : 'Gib den 8-stelligen Code von deinem bereits angemeldeten Gerät ein.'}</p><form onSubmit={authenticate}>{authMode === 'register' ? <input className="auth-input" value={authName} onChange={(event) => setAuthName(event.target.value)} placeholder="Dein Name" maxLength={60} autoFocus required /> : <input className="auth-input code-input" value={linkCode} onChange={(event) => setLinkCode(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="12345678" inputMode="numeric" autoFocus required />}<button className="add-button large" type="submit" disabled={authBusy}>{authMode === 'register' ? 'Konto erstellen' : 'Gerät verbinden'}</button></form>{authError && <p className="auth-error">{authError}</p>}<button className="auth-switch" onClick={() => { setAuthMode(authMode === 'register' ? 'link' : 'register'); setAuthError(''); }}>{authMode === 'register' ? 'Ich habe bereits einen Verbindungscode' : 'Neues Konto erstellen'}</button></section></div>}
         <footer><span className="footer-dot" />Deine Gedanken bleiben bei dir <span className="footer-separator">·</span> <strong>Wische für die nächste Ansicht</strong></footer>
       </section>
     </main>

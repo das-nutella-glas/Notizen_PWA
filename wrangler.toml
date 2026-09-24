@@ -1,0 +1,7 @@
+name = "notizen-pwa"
+compatibility_date = "2026-09-24"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "notizen-pwa"
+database_id = "386c2493-5bc2-48b9-ac95-0e6190f84619"

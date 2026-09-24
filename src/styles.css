@@ -11,12 +11,14 @@ button { border: 0; cursor: pointer; }
 .ambient-one { background: #bceafe; height: 210px; right: -80px; top: 170px; width: 210px; }
 .ambient-two { background: #d3d6ff; height: 150px; left: -80px; top: 570px; width: 150px; }
 .topbar { align-items: center; display: flex; justify-content: space-between; }
+.topbar-actions { align-items: center; display: flex; gap: 8px; }
 .brand { align-items: center; color: #183e56; display: flex; font-size: 16px; font-weight: 700; gap: 10px; letter-spacing: -.3px; }
 .brand-mark { align-items: center; background: #b8e7fa; border-radius: 11px; box-shadow: 0 5px 14px #a4d5e955; display: flex; height: 32px; justify-content: center; width: 32px; }
 svg { fill: none; height: 18px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; width: 18px; }
 .brand-mark svg { color: #16759c; height: 18px; stroke-width: 1.5; }
 .icon-button { align-items: center; background: #ffffff92; border: 1px solid #ffffff; border-radius: 50%; color: #54768a; display: flex; height: 36px; justify-content: center; width: 36px; }
 .icon-button svg { height: 17px; width: 17px; }
+.profile-button.signed-in { background: #c6edfc; color: #23708d; }
 .hero { padding: 83px 0 36px; }
 .eyebrow, .section-kicker { color: #5791a8; font-size: 10px; font-weight: 700; letter-spacing: 2.2px; margin: 0 0 14px; }
 h1 { color: #123a51; font-size: clamp(42px, 7vw, 63px); letter-spacing: -2.8px; line-height: .98; margin: 0; }
@@ -126,6 +128,7 @@ footer strong { color: #578193; font-weight: 600; }
 .night-mode .note-card p { color: #c0d8df; }
 .night-mode .section-kicker { color: #8ac5d8; }
 .night-mode .icon-button { background: #ffffff15; border-color: #ffffff20; color: #b4d3dd; }
+.night-mode .profile-button.signed-in { background: #28657a; color: #e8f7fc; }
 .night-mode .complete-button { background: #ffffff12; border-color: #70b4c9; }
 .night-mode .note-actions button:hover { background: #ffffff14; }
 .night-mode .title-input, .night-mode .note-main h3, .night-mode .event-option-title { color: #e8f7fc; }
@@ -141,5 +144,19 @@ footer strong { color: #578193; font-weight: 600; }
 .night-mode .modal-backdrop { background: #071b29a8; }
 .night-mode .modal-close, .night-mode .modal-action { background: #ffffff14; border-color: #ffffff20; color: #b9d9e3; }
 .night-mode .modal-event-list .event-option { background: #ffffff12; border-color: #ffffff20; }
+.profile-modal p, .auth-modal p { color: #426779; line-height: 1.5; }
+.link-code-button, .logout-button { border-radius: 11px; display: block; font-size: 12px; font-weight: 600; padding: 12px 14px; width: 100%; }
+.link-code-button { background: #d9f3fb; color: #277e99; }
+.logout-button { background: transparent; color: #bb6875; margin-top: 10px; }
+.generated-code { align-items: center; background: #effaff; border: 1px dashed #a9d8e8; border-radius: 12px; display: flex; flex-direction: column; gap: 3px; margin-top: 14px; padding: 12px; }
+.generated-code span { color: #7c9eaa; font-size: 10px; }
+.generated-code strong { color: #1e708a; font-size: 25px; letter-spacing: 4px; }
+.auth-input { background: #effaff; border: 1px solid #c3e6f1; border-radius: 11px; color: #1a455c; display: block; font-size: 16px; margin: 18px 0 10px; outline: 0; padding: 13px 14px; width: 100%; }
+.code-input { letter-spacing: 4px; text-align: center; }
+.auth-error { color: #b45360 !important; font-size: 12px; }
+.auth-switch { background: transparent; color: #4e92a7; font-size: 12px; margin-top: 19px; padding: 4px; width: 100%; }
+.night-mode .profile-modal p, .night-mode .auth-modal p { color: #c0d8df; }
+.night-mode .link-code-button, .night-mode .auth-input, .night-mode .generated-code { background: #ffffff12; border-color: #ffffff20; color: #e8f7fc; }
+.night-mode .generated-code strong { color: #bce8f3; }
 @keyframes appear { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 @media (max-width: 560px) { .app-content { max-width: 430px; padding: 25px 18px calc(30px + env(safe-area-inset-bottom)); } .hero, .calendar-hero { padding: 68px 0 30px; } .note-composer { margin-bottom: 45px; } .note-actions { opacity: 1; } footer { flex-wrap: wrap; margin-top: 35px; } .footer-separator { display: none; } .bottom-nav { margin-top: 45px; } }
