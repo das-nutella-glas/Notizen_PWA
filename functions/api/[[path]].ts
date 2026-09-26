@@ -87,7 +87,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, params }) =>
 
     if (route === 'notes' && request.method === 'POST') {
       const data = await body(request);
-      if (typeof data.title !== 'string' || !data.title.trim() || typeof data.text !== 'string' || !data.text.trim()) return json({ error: 'Titel und Text sind erforderlich.' }, 400);
+      if (typeof data.title !== 'string' || !data.title.trim() || typeof data.text !== 'string') return json({ error: 'Ein Titel ist erforderlich.' }, 400);
       const noteId = id();
       await env.DB.prepare('INSERT INTO notes (id, user_id, title, text, created_at, deadline, completed) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(noteId, user.id, data.title.trim().slice(0, 160), data.text.trim(), typeof data.createdAt === 'number' ? data.createdAt : Date.now(), typeof data.deadline === 'string' && data.deadline ? data.deadline : null, data.completed ? 1 : 0).run();
       return json({ id: noteId }, 201);
