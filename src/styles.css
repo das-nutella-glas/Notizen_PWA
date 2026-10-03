@@ -54,7 +54,7 @@ h2 { color: #24495c; font-size: 20px; letter-spacing: -.7px; margin: 0; }
 .complete-button svg { height: 14px; stroke-width: 2.5; width: 14px; }
 .note-main { flex: 1; min-width: 0; }
 .note-main h3 { color: #24495c; font-size: 14px; letter-spacing: -.2px; margin: 0 0 3px; }
-.note-card p { color: #426779; font-size: 13px; line-height: 1.45; margin: 0; }
+.note-card p { color: #426779; font-size: 13px; line-height: 1.45; margin: 0; white-space: pre-wrap; }
 .deadline-label { color: #5b9ab0; display: inline-block; font-size: 10px; font-weight: 600; margin-top: 7px; }
 .note-actions { display: flex; gap: 4px; opacity: 0; transition: opacity .2s; }
 .note-card:hover .note-actions, .note-actions:focus-within { opacity: 1; }
@@ -79,15 +79,36 @@ h2 { color: #24495c; font-size: 20px; letter-spacing: -.7px; margin: 0; }
 .progress-boxes span.filled { background: #65b8d1; border-color: #65b8d1; color: white; }
 .progress-boxes svg { height: 13px; width: 13px; }
 .daily-actions { color: #6f98a7; font-size: 12px; margin-bottom: 13px; }
+.evening-button { background: #ffffff9e; border-radius: 15px; color: #4e8192; display: block; font-size: 12px; line-height: 1.45; margin: 0 0 16px; padding: 13px 15px; text-align: left; width: 100%; }
+.evening-button:hover { background: #e5f7fc; color: #277e99; }
 .daily-task { align-items: center; border-radius: 16px; display: flex; gap: 12px; padding: 14px 17px; }
 .task-number { align-items: center; background: #d9f3fb; border-radius: 50%; color: #277e99; display: flex; flex: 0 0 auto; font-size: 13px; font-weight: 700; height: 28px; justify-content: center; width: 28px; }
 .daily-task.completed .task-number { background: #9ed4aa; color: #28653a; }
 .daily-task.completed .note-main { opacity: .65; text-decoration: line-through; }
+.daily-task .note-main.no-note { align-items: center; display: flex; }
 .daily-hint { color: #7b9ba7; font-size: 12px; line-height: 1.5; margin-top: 16px; }
+.tomorrow-section { margin-top: 42px; opacity: .68; }
+.tomorrow-task { background: #e7f0f2a8; }
+.tomorrow-task .task-number { background: #d5e1e4; color: #75919b; }
+.tomorrow-task .note-main h3, .tomorrow-task .note-main p { color: #78929d; }
 .success-modal { text-align: center; }
 .success-modal h2 { margin: 15px 0 22px; }
+.success-actions { display: grid; gap: 10px; }
+.secondary-action { background: #6daec4; }
+.tomorrow-planner h2 { margin: 8px 0 10px; }
+.tomorrow-planner p { color: #6f98a7; font-size: 13px; line-height: 1.45; margin: 0 0 16px; }
+.tomorrow-options { display: grid; gap: 8px; max-height: 280px; margin-bottom: 18px; overflow-y: auto; }
+.tomorrow-option { align-items: center; background: #ffffff88; border: 1px solid #ffffff; border-radius: 12px; color: #426779; display: flex; gap: 10px; padding: 11px 12px; text-align: left; }
+.tomorrow-option span { align-items: center; background: #e8f7fc; border-radius: 50%; color: #5791a8; display: flex; flex: 0 0 auto; font-size: 12px; height: 25px; justify-content: center; width: 25px; }
+.tomorrow-option.selected { background: #d9f3fb; border-color: #85c8da; }
+.tomorrow-option.selected span { background: #65b8d1; color: white; }
 .success-icon { align-items: center; background: #9ed4aa; border-radius: 50%; color: white; display: inline-flex; height: 48px; justify-content: center; width: 48px; }
 .success-icon svg { height: 25px; width: 25px; }
+.confirm-modal { text-align: center; }
+.confirm-modal h2 { margin: 8px 0 22px; }
+.confirm-actions { display: flex; gap: 10px; }
+.confirm-actions .add-button { flex: 1; }
+.danger-button { background: #c97984; }
 .completed .note-card p, .completed p { color: #809ca8; text-decoration: line-through; }
 .empty-state { border: 1px dashed #b9dce8; border-radius: 16px; color: #7b9ba7; font-size: 14px; padding: 28px; text-align: center; }
 footer { align-items: center; color: #82a2af; display: flex; font-size: 11px; gap: 7px; justify-content: center; margin-top: 80px; }
@@ -170,6 +191,14 @@ footer strong { color: #578193; font-weight: 600; }
 .night-mode .daily-select.selected, .night-mode .progress-boxes span.filled { background: #367b8f; color: white; }
 .night-mode .task-number { background: #28657a; color: #e8f7fc; }
 .night-mode .daily-task.completed .task-number { background: #4f8e63; }
+.night-mode .tomorrow-task { background: #ffffff0d; }
+.night-mode .tomorrow-task .task-number { background: #ffffff18; color: #9db9c2; }
+.night-mode .tomorrow-task .note-main h3, .night-mode .tomorrow-task .note-main p, .night-mode .tomorrow-planner p { color: #9db9c2; }
+.night-mode .tomorrow-option { background: #ffffff12; border-color: #ffffff20; color: #d0e3e8; }
+.night-mode .tomorrow-option span { background: #ffffff18; color: #b9d9e3; }
+.night-mode .tomorrow-option.selected { background: #28657a; border-color: #70b4c9; }
+.night-mode .evening-button { background: #ffffff12; color: #b9d9e3; }
+.night-mode .evening-button:hover { background: #28657a; color: #e8f7fc; }
 .night-mode .event-detail p, .night-mode .event-option { color: #c0d8df; }
 .night-mode .calendar-day:not(.blank):hover { background: #ffffff14; }
 .night-mode .calendar-event { background: #367b8f; color: #e8f7fc; }

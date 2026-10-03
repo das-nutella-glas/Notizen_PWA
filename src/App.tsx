@@ -12,6 +12,7 @@ type Note = {
 
 type View = 'daily' | 'list' | 'calendar';
 type CalendarSelection = { date: string; noteIds: string[] } | null;
+type DailyPlan = { date: string; ids: string[]; tomorrowIds: string[] };
 type User = { id: string; name: string };
 type AuthResponse = { user: User; token: string; linkCode?: string };
 
@@ -77,6 +78,32 @@ function formatDate(date: string) {
   return new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: 'short' }).format(new Date(`${date}T12:00:00`));
 }
 
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function nextDateKey(date = new Date()) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + 1);
+  return localDateKey(next);
+}
+
+function readDailyPlan(): DailyPlan {
+  try {
+    const stored = JSON.parse(localStorage.getItem('gedankenraum-daily-plan') ?? 'null') as Partial<DailyPlan> | null;
+    return {
+      date: stored?.date ?? localDateKey(),
+      ids: Array.isArray(stored?.ids) ? stored.ids : [],
+      tomorrowIds: Array.isArray(stored?.tomorrowIds) ? stored.tomorrowIds : [],
+    };
+  } catch {
+    return { date: localDateKey(), ids: [], tomorrowIds: [] };
+  }
+}
+
 function App() {
   const [notes, setNotes] = useState<Note[]>(getInitialNotes);
   const [draftTitle, setDraftTitle] = useState('');
@@ -101,12 +128,19 @@ function App() {
   const [generatedCode, setGeneratedCode] = useState('');
   const [authError, setAuthError] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
-  const [dailyIds, setDailyIds] = useState<string[]>(() => JSON.parse(localStorage.getItem('gedankenraum-daily') ?? '[]') as string[]);
+  const [dailyIds, setDailyIds] = useState<string[]>(() => readDailyPlan().ids);
+  const [tomorrowIds, setTomorrowIds] = useState<string[]>(() => readDailyPlan().tomorrowIds);
+  const [dailyPlanDate, setDailyPlanDate] = useState(() => readDailyPlan().date);
   const [dailyDonePopup, setDailyDonePopup] = useState(false);
+  const [planningTomorrow, setPlanningTomorrow] = useState(false);
+  const [tomorrowDonePopup, setTomorrowDonePopup] = useState(false);
   const [calendarCreateDate, setCalendarCreateDate] = useState<string | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<string[] | null>(null);
 
   useEffect(() => localStorage.setItem('gedankenraum-notes', JSON.stringify(notes)), [notes]);
-  useEffect(() => localStorage.setItem('gedankenraum-daily', JSON.stringify(dailyIds)), [dailyIds]);
+  useEffect(() => {
+    localStorage.setItem('gedankenraum-daily-plan', JSON.stringify({ date: dailyPlanDate, ids: dailyIds, tomorrowIds }));
+  }, [dailyIds, dailyPlanDate, tomorrowIds]);
   useEffect(() => {
     const token = localStorage.getItem('gedankenraum-session');
     if (!token) return;
@@ -125,18 +159,38 @@ function App() {
   const monthDays = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0).getDate();
   const firstWeekday = (new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1).getDay() + 6) % 7;
   const today = new Date();
-  const todayKey = today.toISOString().slice(0, 10);
+  const todayKey = localDateKey(today);
   const dailyNotes = dailyIds.map((id) => notes.find((note) => note.id === id)).filter((note): note is Note => Boolean(note));
+  const tomorrowNotes = tomorrowIds.map((id) => notes.find((note) => note.id === id)).filter((note): note is Note => Boolean(note));
   const completedDaily = dailyNotes.filter((note) => note.completed).length;
   useEffect(() => {
     if (dailyIds.length === 3 && completedDaily === 3) setDailyDonePopup(true);
   }, [completedDaily, dailyIds.length]);
+  function rolloverDailyPlan() {
+    if (dailyPlanDate === todayKey) return;
+    const previousNotes = dailyIds.map((id) => notes.find((note) => note.id === id)).filter((note): note is Note => Boolean(note));
+    const unfinished = previousNotes.filter((note) => !note.completed).map((note) => note.id);
+    const nextIds = [...new Set([...unfinished, ...tomorrowIds])].slice(0, 3);
+    setDailyIds(nextIds);
+    setTomorrowIds([]);
+    setDailyPlanDate(todayKey);
+  }
+
   useEffect(() => {
-    if (localStorage.getItem('gedankenraum-daily-date') !== todayKey) {
-      localStorage.setItem('gedankenraum-daily-date', todayKey);
-      setDailyIds([]);
+    rolloverDailyPlan();
+    const timer = window.setInterval(rolloverDailyPlan, 30_000);
+    return () => window.clearInterval(timer);
+  });
+  useEffect(() => {
+    const validIds = dailyIds.filter((id, index, ids) => notes.some((note) => note.id === id) && ids.indexOf(id) === index).slice(0, 3);
+    if (validIds.length !== dailyIds.length || validIds.some((id, index) => id !== dailyIds[index])) {
+      setDailyIds(validIds);
     }
-  }, [todayKey]);
+    const validTomorrowIds = tomorrowIds.filter((id, index, ids) => notes.some((note) => note.id === id) && ids.indexOf(id) === index).slice(0, 3);
+    if (validTomorrowIds.length !== tomorrowIds.length || validTomorrowIds.some((id, index) => id !== tomorrowIds[index])) {
+      setTomorrowIds(validTomorrowIds);
+    }
+  }, [dailyIds, notes, tomorrowIds]);
 
   async function saveNote(event: FormEvent, forcedDeadline?: string) {
     event.preventDefault();
@@ -185,19 +239,49 @@ function App() {
 
   function deleteCompleted() {
     const completedIds = new Set(completedNotes.map((note) => note.id));
-    setNotes((current) => current.filter((note) => !completedIds.has(note.id)));
-    setDailyIds((current) => current.filter((id) => !completedIds.has(id)));
+    setDeleteConfirmation([...completedIds]);
   }
 
   function selectDaily(id: string) {
     setDailyIds((current) => current.length >= 3 && !current.includes(id) ? current : current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   }
 
+  function selectTomorrow(id: string) {
+    setTomorrowIds((current) => current.length >= 3 && !current.includes(id) ? current : current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  }
+
+  function planTomorrow() {
+    setDailyDonePopup(false);
+    setPlanningTomorrow(true);
+  }
+
+  function planRemainingTomorrow() {
+    const unfinishedIds = dailyNotes.filter((note) => !note.completed).map((note) => note.id);
+    setTomorrowIds(unfinishedIds.slice(0, 3));
+    setPlanningTomorrow(true);
+  }
+
+  function finishTomorrowPlanning() {
+    if (tomorrowIds.length !== 3) return;
+    setPlanningTomorrow(false);
+    setTomorrowDonePopup(true);
+  }
+
   async function deleteNote(id: string) {
-    setNotes((current) => current.filter((note) => note.id !== id));
-    if (localStorage.getItem('gedankenraum-session')) await api(`notes/${id}`, { method: 'DELETE' });
+    setDeleteConfirmation([id]);
+  }
+
+  async function confirmDelete() {
+    if (!deleteConfirmation) return;
+    const ids = new Set(deleteConfirmation);
+    setNotes((current) => current.filter((note) => !ids.has(note.id)));
+    setDailyIds((current) => current.filter((id) => !ids.has(id)));
+    if (localStorage.getItem('gedankenraum-session')) {
+      await Promise.all([...ids].map((id) => api(`notes/${id}`, { method: 'DELETE' })));
+    }
     setSelectedNoteId(null);
     setCalendarSelection(null);
+    setDeleteConfirmation(null);
   }
 
   async function authenticate(event: FormEvent) {
@@ -308,15 +392,17 @@ function App() {
 
         {view === 'daily' ? <div className="view-panel daily-panel">
           <section className="daily-hero"><p className="eyebrow">DEIN FOKUS FÜR HEUTE</p><h1>Deine <em>3 heutigen</em><br />Aufgaben</h1><div className="daily-progress"><div className="progress-track"><span style={{ width: `${completedDaily * 33.333}%` }} /></div><div className="progress-boxes">{[1, 2, 3].map((step) => <span className={completedDaily >= step ? 'filled' : ''} key={step}>{completedDaily >= step ? icons.check : step}</span>)}</div></div></section>
-          <div className="daily-actions"><span>{dailyIds.length}/3 ausgewählt</span></div>
-          <div className="daily-list">{dailyNotes.map((note, index) => <article className={`daily-task glass-card${note.completed ? ' completed' : ''}`} key={note.id}><span className="task-number">{index + 1}</span><button className="complete-button" onClick={() => toggleNote(note.id)} aria-label="Aufgabe abhaken">{icons.check}</button><div className="note-main"><h3>{note.title}</h3><p>{note.text || 'Keine Notiz'}</p></div></article>)}</div>
+          <div className="daily-actions"><span>{dailyNotes.length}/3 ausgewählt</span></div>
+          {today.getHours() >= 20 && dailyNotes.length > 0 && completedDaily < 3 && <button className="evening-button glass-card" onClick={planRemainingTomorrow}>Feierabend für heute? Deine nicht erledigten Aufgaben werden für morgen übernommen. Wähle {3 - completedDaily} weitere Aufgabe{3 - completedDaily === 1 ? '' : 'n'} für morgen aus.</button>}
+          <div className="daily-list">{dailyNotes.map((note, index) => <article className={`daily-task glass-card${note.completed ? ' completed' : ''}`} key={note.id}><span className="task-number">{index + 1}</span><button className={`complete-button${note.completed ? ' selected' : ''}`} onClick={() => toggleNote(note.id)} aria-label="Aufgabe abhaken">{icons.check}</button><div className={`note-main${note.text ? '' : ' no-note'}`}><h3>{note.title}</h3>{note.text && <p>{note.text}</p>}</div></article>)}</div>
+          {tomorrowNotes.length > 0 && <section className="tomorrow-section"><div className="section-heading"><div><span className="section-kicker">VORGEMERKT</span><h2>Aufgaben für morgen</h2></div><span className="count-badge muted">{tomorrowNotes.length}/3</span></div><div className="daily-list">{tomorrowNotes.map((note, index) => <article className="daily-task tomorrow-task glass-card" key={note.id}><span className="task-number">{index + 1}</span><div className={`note-main${note.text ? '' : ' no-note'}`}><h3>{note.title}</h3>{note.text && <p>{note.text}</p>}<span className="deadline-label">{formatDate(nextDateKey())}</span></div></article>)}</div></section>}
           {dailyIds.length < 3 && <p className="daily-hint">Wähle unten aus den offenen Aufgaben genau drei Aufgaben für heute aus.</p>}
         </div> : view === 'list' ? <div className="view-panel">
           <section className="hero"><p className="eyebrow">WILLKOMMEN IN DEINEM GEDANKENRAUM</p><h1>Was geht dir<br /><em>durch den Kopf?</em></h1></section>
           <form className="note-composer glass-card" onSubmit={saveNote}>
             <input className="title-input" value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} placeholder="Neue Aufgabe" aria-label="Titel der Aufgabe" required />
             <textarea value={draftText} onChange={(event) => setDraftText(event.target.value)} placeholder="Notizen (optional)" aria-label="Notiztext" rows={3} />
-            <div className="deadline-row"><label htmlFor="deadline">Ablaufdatum <span>(optional)</span></label><input id="deadline" type="date" value={draftDeadline} onChange={(event) => setDraftDeadline(event.target.value)} /></div>
+            <div className="deadline-row"><label htmlFor="deadline">Deadline <span>(optional)</span></label><input id="deadline" type="date" value={draftDeadline} onChange={(event) => setDraftDeadline(event.target.value)} /></div>
             <div className="composer-footer"><button className="add-button large" type="submit" disabled={!draftTitle.trim()}>{editingId ? 'Speichern' : 'Hinzufügen'} <span>{icons.plus}</span></button></div>
           </form>
           <section className="notes-section"><div className="section-heading"><div><span className="section-kicker">DEINE GEDANKENSAMMLUNG</span><h2>Offene Aufgaben</h2></div><span className="count-badge">{openNotes.length}</span></div><div className="notes-list">{openNotes.length === 0 && <div className="empty-state">Alles erledigt. Zeit für neue Aufgaben.</div>}{openNotes.map((note, index) => <div className="selectable-task" key={note.id}><button className={`daily-select${dailyIds.includes(note.id) ? ' selected' : ''}`} onClick={() => selectDaily(note.id)} aria-label="Für heute auswählen">{dailyIds.includes(note.id) ? dailyIds.indexOf(note.id) + 1 : '+'}</button>{renderNote(note, index)}</div>)}</div></section>
@@ -354,7 +440,7 @@ function App() {
               ))}
             </div>
           </section>
-          <section className="deadline-list"><div className="section-heading"><div><span className="section-kicker">TERMINE</span><h2>Mit Ablaufdatum</h2></div><span className="count-badge">{deadlineNotes.length}</span></div>{deadlineNotes.length === 0 ? <div className="empty-state">Noch keine Notiz hat ein Ablaufdatum.</div> : <div className="notes-list">{deadlineNotes.sort((a, b) => (a.deadline ?? '').localeCompare(b.deadline ?? '')).map(renderNote)}</div>}</section>
+          <section className="deadline-list"><div className="section-heading"><div><span className="section-kicker">TERMINE</span><h2>Mit Deadline</h2></div><span className="count-badge">{deadlineNotes.length}</span></div>{deadlineNotes.length === 0 ? <div className="empty-state">Noch keine Aufgabe hat eine Deadline.</div> : <div className="notes-list">{deadlineNotes.sort((a, b) => (a.deadline ?? '').localeCompare(b.deadline ?? '')).map(renderNote)}</div>}</section>
         </div>}
 
         <nav className="bottom-nav" aria-label="Ansichten"><button className={view === 'daily' ? 'active' : ''} onClick={() => changeView('daily')}>{icons.check}<span>Heute</span></button><button className={view === 'list' ? 'active' : ''} onClick={() => changeView('list')}>{icons.list}<span>Aufgaben</span></button><button className={view === 'calendar' ? 'active' : ''} onClick={() => changeView('calendar')}>{icons.calendar}<span>Kalender</span></button></nav>
@@ -363,7 +449,10 @@ function App() {
         {calendarCreateDate && <div className="modal-backdrop" role="presentation" onClick={() => setCalendarCreateDate(null)}><section className="event-modal glass-card" role="dialog" aria-modal="true" aria-labelledby="calendar-create-title" onClick={(event) => event.stopPropagation()}><button className="modal-close" onClick={() => setCalendarCreateDate(null)} aria-label="Popup schließen">{icons.close}</button><span className="section-kicker">{formatDate(calendarCreateDate)}</span><h2 id="calendar-create-title">Aufgabe für diesen Tag</h2><form onSubmit={async (event) => { await saveNote(event, calendarCreateDate); setCalendarCreateDate(null); }}><input className="auth-input" value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} placeholder="Neue Aufgabe" required autoFocus /><textarea className="calendar-create-text" value={draftText} onChange={(event) => setDraftText(event.target.value)} placeholder="Notizen (optional)" rows={3} /><button className="add-button large" type="submit" disabled={!draftTitle.trim()}>Aufgabe hinzufügen <span>{icons.plus}</span></button></form></section></div>}
         {profileOpen && user && <div className="modal-backdrop" role="presentation" onClick={() => setProfileOpen(false)}><section className="event-modal profile-modal glass-card" role="dialog" aria-modal="true" aria-labelledby="profile-title" onClick={(event) => event.stopPropagation()}><button className="modal-close" onClick={() => setProfileOpen(false)} aria-label="Profil schließen">{icons.close}</button><span className="section-kicker">DEIN PROFIL</span><h2 id="profile-title">{user.name}</h2><p>{import.meta.env.DEV ? 'Lokaler Testmodus: Notizen werden in diesem Browser gespeichert.' : 'Deine Notizen werden sicher in deiner Cloudflare-Datenbank gespeichert.'}</p>{!import.meta.env.DEV && <><button className="link-code-button" onClick={createLinkCode}>Code für weiteres Gerät erstellen</button>{generatedCode && <div className="generated-code"><span>10 Minuten gültig</span><strong>{generatedCode}</strong></div>}<button className="logout-button" onClick={logout}>Konto wechseln</button></>}</section></div>}
         {authOpen && <div className="modal-backdrop" role="presentation"><section className="event-modal auth-modal glass-card" role="dialog" aria-modal="true" aria-labelledby="auth-title" onClick={(event) => event.stopPropagation()}><span className="section-kicker">WILLKOMMEN</span><h2 id="auth-title">{authMode === 'register' ? 'Dein Gedankenraum' : 'Gerät verbinden'}</h2><p>{authMode === 'register' ? 'Lege einen Namen für dein Konto fest. Ein Passwort ist nicht nötig.' : 'Gib den 8-stelligen Code von deinem bereits angemeldeten Gerät ein.'}</p><form onSubmit={authenticate}>{authMode === 'register' ? <input className="auth-input" value={authName} onChange={(event) => setAuthName(event.target.value)} placeholder="Dein Name" maxLength={60} autoFocus required /> : <input className="auth-input code-input" value={linkCode} onChange={(event) => setLinkCode(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="12345678" inputMode="numeric" autoFocus required />}<button className="add-button large" type="submit" disabled={authBusy}>{authMode === 'register' ? 'Konto erstellen' : 'Gerät verbinden'}</button></form>{authError && <p className="auth-error">{authError}</p>}<button className="auth-switch" onClick={() => { setAuthMode(authMode === 'register' ? 'link' : 'register'); setAuthError(''); }}>{authMode === 'register' ? 'Ich habe bereits einen Verbindungscode' : 'Neues Konto erstellen'}</button></section></div>}
-        {dailyDonePopup && <div className="modal-backdrop" role="presentation" onClick={() => setDailyDonePopup(false)}><section className="event-modal glass-card success-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}><span className="success-icon">{icons.check}</span><h2>Sehr gut, alles für heute erledigt</h2><button className="add-button large" onClick={() => setDailyDonePopup(false)}>Weiter</button></section></div>}
+        {dailyDonePopup && <div className="modal-backdrop" role="presentation" onClick={() => setDailyDonePopup(false)}><section className="event-modal glass-card success-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}><span className="success-icon">{icons.check}</span><h2>Gut gemacht, du hast alle 3 Aufgaben für heute erledigt!</h2><div className="success-actions"><button className="add-button large" onClick={() => setDailyDonePopup(false)}>Super, das war's für heute!</button><button className="add-button large secondary-action" onClick={planTomorrow}>Super, direkt den nächsten Tag planen!</button></div></section></div>}
+        {planningTomorrow && <div className="modal-backdrop" role="presentation"><section className="event-modal glass-card tomorrow-planner" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}><span className="section-kicker">NÄCHSTER TAG</span><h2>{tomorrowIds.length > 0 && dailyNotes.some((note) => !note.completed && tomorrowIds.includes(note.id)) ? 'Ergänze deine Aufgaben für morgen' : 'Wähle 3 Aufgaben für morgen'}</h2><p>Nicht erledigte Aufgaben bleiben vorausgewählt. Ergänze noch {Math.max(0, 3 - tomorrowIds.length)} weitere Aufgabe{3 - tomorrowIds.length === 1 ? '' : 'n'}.</p><div className="tomorrow-options">{openNotes.map((note) => <button className={`tomorrow-option${tomorrowIds.includes(note.id) ? ' selected' : ''}`} key={note.id} onClick={() => selectTomorrow(note.id)}><span>{tomorrowIds.includes(note.id) ? tomorrowIds.indexOf(note.id) + 1 : '+'}</span><strong>{note.title}</strong></button>)}</div><button className="add-button large" disabled={tomorrowIds.length !== 3} onClick={finishTomorrowPlanning}>Für morgen speichern</button></section></div>}
+        {tomorrowDonePopup && <div className="modal-backdrop" role="presentation" onClick={() => setTomorrowDonePopup(false)}><section className="event-modal glass-card success-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}><span className="success-icon">{icons.check}</span><h2>Aufgaben für morgen sind vorgemerkt.</h2><button className="add-button large" onClick={() => setTomorrowDonePopup(false)}>Super!</button></section></div>}
+        {deleteConfirmation && <div className="modal-backdrop" role="presentation" onClick={() => setDeleteConfirmation(null)}><section className="event-modal glass-card confirm-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}><h2>Aufgabe{deleteConfirmation.length === 1 ? '' : 'n'} wirklich löschen?</h2><div className="confirm-actions"><button className="add-button" onClick={() => setDeleteConfirmation(null)}>Nein</button><button className="add-button danger-button" onClick={confirmDelete}>Ja</button></div></section></div>}
       </section>
     </main>
   );
